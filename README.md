@@ -26,9 +26,3 @@
 - MySQL 5.7+ (推荐 8.0)
 - Windows / Linux
 
-## 快速开始
-
-### 1. 克隆仓库
-```bash
-git clone https://github.com/RCMOND/ChatRoomServer.git
-cd ChatRoomServer
