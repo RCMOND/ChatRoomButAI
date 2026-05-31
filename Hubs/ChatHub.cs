@@ -37,60 +37,60 @@ public class ChatHub : Hub
     }
 
     // ==================== 连接与断开 ====================
-    public override async Task OnConnectedAsync()
+public override async Task OnConnectedAsync()
+{
+    var httpContext = Context.GetHttpContext();
+    var clientIp = httpContext?.Connection.RemoteIpAddress?.ToString();
+
+    // IP 黑名单检查（数据库）
+    if (!string.IsNullOrEmpty(clientIp))
     {
-        var httpContext = Context.GetHttpContext();
-        var clientIp = httpContext?.Connection.RemoteIpAddress?.ToString();
-
-        // IP 黑名单检查（数据库）
-        if (!string.IsNullOrEmpty(clientIp))
-        {
-            bool isBanned = await _db.BannedIps.AnyAsync(b => b.Ip == clientIp);
-            if (isBanned)
-            {
-                Context.Abort();
-                return;
-            }
-        }
-
-        var username = Context.User?.Identity?.Name;
-        if (string.IsNullOrEmpty(username))
+        bool isBanned = await _db.BannedIps.AnyAsync(b => b.Ip == clientIp);
+        if (isBanned)
         {
             Context.Abort();
             return;
         }
-
-        // 账号封禁检查
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username);
-        if (user != null && user.IsBanned)
-        {
-            Context.Abort();
-            return;
-        }
-
-        // 重复登录处理
-        if (OnlineUsers.TryGetValue(username, out var existingConnectionId))
-        {
-            if (existingConnectionId != Context.ConnectionId)
-            {
-                await Clients.Caller.SendAsync("Kickout", "您的账号已在别处登录");
-                Context.Abort();
-                return;
-            }
-        }
-
-        // 记录 IP 和在线状态
-        if (!string.IsNullOrEmpty(clientIp))
-            UserIps[username] = clientIp;
-        OnlineUsers[username] = Context.ConnectionId;
-
-        // 保存并广播系统消息
-        await SaveSystemMessageAsync(_db, $"{username} 加入了聊天室");
-        await Clients.All.SendAsync("UserJoined", username, user?.Avatar ?? "");
-
-        await base.OnConnectedAsync();
-        await SendOnlineUsersUpdate();
     }
+
+    var username = Context.User?.Identity?.Name;
+    if (string.IsNullOrEmpty(username))
+    {
+        Context.Abort();
+        return;
+    }
+
+    // 账号封禁检查
+    var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username);
+    if (user != null && user.IsBanned)
+    {
+        Context.Abort();
+        return;
+    }
+
+    // 重复登录处理
+    if (OnlineUsers.TryGetValue(username, out var existingConnectionId))
+    {
+        // 发送踢出消息给旧客户端
+        await Clients.Client(existingConnectionId).SendAsync("Kickout", "您的账号已在别处登录");
+        // 等待一小段时间确保消息送达
+        await Task.Delay(300);
+    }
+
+    // 更新当前连接（覆盖旧连接 ID）
+    OnlineUsers[username] = Context.ConnectionId;
+
+    // 记录 IP
+    if (!string.IsNullOrEmpty(clientIp))
+        UserIps[username] = clientIp;
+
+    // 保存并广播系统消息
+    await SaveSystemMessageAsync(_db, $"{username} 加入了聊天室");
+    await Clients.All.SendAsync("UserJoined", username, user?.Avatar ?? "");
+
+    await base.OnConnectedAsync();
+    await SendOnlineUsersUpdate();
+}
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
